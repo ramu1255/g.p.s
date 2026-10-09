@@ -1,0 +1,482 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>GPS Trilateration Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: header band, then a two-column workspace (map | controls + result), then the algebra steps and concept notes. Dark-first, light variant below. */
+:root{
+  --bg:#0a1128; --surface:#111b3a; --surface2:#16224a; --line:#26346a;
+  --fg:#eaf0ff; --muted:#9aa8d6; --canvas:#0b1431; --grid:#7f96e8;
+  --cyan:#22d3ee; --violet:#a78bfa; --blue:#5b8cff;
+  --green:#34d399; --amber:#fbbf24; --warn:#fb7185;
+  --shadow:0 10px 30px rgba(0,0,0,.35);
+  --f-display:'Chakra Petch',system-ui,sans-serif;
+  --f-body:'IBM Plex Sans',system-ui,sans-serif;
+  --f-mono:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#eef2fb; --surface:#ffffff; --surface2:#f1f5fd; --line:#d3dcf1;
+    --fg:#0f1a3a; --muted:#55628c; --canvas:#f8faff; --grid:#4a63b8;
+    --cyan:#0891b2; --violet:#7c3aed; --blue:#2f5fe0;
+    --green:#059669; --amber:#d97706; --warn:#e11d48;
+    --shadow:0 10px 26px rgba(30,50,110,.12);
+    color-scheme:light;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#eef2fb; --surface:#ffffff; --surface2:#f1f5fd; --line:#d3dcf1;
+  --fg:#0f1a3a; --muted:#55628c; --canvas:#f8faff; --grid:#4a63b8;
+  --cyan:#0891b2; --violet:#7c3aed; --blue:#2f5fe0;
+  --green:#059669; --amber:#d97706; --warn:#e11d48;
+  --shadow:0 10px 26px rgba(30,50,110,.12);
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; padding-inline:16px; padding-block:20px 40px;
+  background-color:var(--bg);
+  background-image:
+    radial-gradient(900px 420px at 8% -8%, color-mix(in srgb,var(--violet) 22%,transparent), transparent 70%),
+    radial-gradient(800px 380px at 100% 0%, color-mix(in srgb,var(--cyan) 16%,transparent), transparent 70%);
+  background-repeat:no-repeat;
+  color:var(--fg); font-family:var(--f-body); font-size:15px; line-height:1.55;
+}
+.wrap{max-width:1180px; margin-inline:auto; display:flex; flex-direction:column; gap:20px}
+h1,h2,h3{font-family:var(--f-display); margin:0; text-wrap:balance; letter-spacing:.01em}
+.mono{font-family:var(--f-mono); font-variant-numeric:tabular-nums}
+sub{font-size:.72em; line-height:0}
+
+/* header */
+header{display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:space-between; gap:12px 24px; padding-block:6px 4px}
+.eyebrow{font-family:var(--f-mono); font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--cyan)}
+h1{font-size:clamp(28px,5vw,44px); font-weight:700; line-height:1.05; margin-top:6px}
+h1 span{background:linear-gradient(90deg,var(--cyan),var(--violet)); -webkit-background-clip:text; background-clip:text; color:transparent}
+.sub{color:var(--muted); max-width:62ch; margin:8px 0 0}
+.tags{display:flex; flex-wrap:wrap; gap:8px}
+.tag{font-family:var(--f-mono); font-size:12px; padding:5px 10px; border:1px solid var(--line); border-radius:999px; color:var(--muted); background:color-mix(in srgb,var(--surface) 70%,transparent)}
+.tag b{color:var(--fg); font-weight:600}
+
+/* cards */
+.card{background:var(--surface); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); padding:18px; min-width:0}
+.card h2{font-size:18px; font-weight:600; display:flex; align-items:center; gap:10px; margin-bottom:12px}
+.card h2 i{width:8px; height:8px; border-radius:50%; background:var(--cyan); box-shadow:0 0 12px var(--cyan)}
+.work{display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:20px; align-items:start}
+.side{display:flex; flex-direction:column; gap:20px; min-width:0}
+@media (max-width:900px){.work{grid-template-columns:minmax(0,1fr)}}
+
+/* map */
+.mapcard{padding:14px}
+.maphead{display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px 16px; margin-bottom:10px}
+.maphead h2{margin:0}
+.toggles{display:flex; flex-wrap:wrap; gap:6px 14px; font-size:13px; color:var(--muted)}
+.toggles label{display:flex; align-items:center; gap:6px; cursor:pointer}
+.toggles input{accent-color:var(--cyan)}
+#map{display:block; width:100%; aspect-ratio:1/1; max-width:100%; border-radius:12px; background:var(--canvas); border:1px solid var(--line); cursor:grab; touch-action:none}
+#map.drag{cursor:grabbing}
+.legend{display:flex; flex-wrap:wrap; gap:6px 16px; margin-top:10px; font-size:12.5px; color:var(--muted)}
+.legend span{display:flex; align-items:center; gap:6px}
+.dot{width:10px; height:10px; border-radius:50%; display:inline-block}
+.ring{background:transparent; border:2px solid var(--fg)}
+.hint{font-size:12.5px; color:var(--muted); margin:8px 0 0}
+
+/* result */
+.result{border-color:color-mix(in srgb,var(--green) 55%,var(--line)); background:linear-gradient(160deg,color-mix(in srgb,var(--green) 12%,var(--surface)),var(--surface) 60%)}
+.pill{font-family:var(--f-mono); font-size:11.5px; letter-spacing:.06em; text-transform:uppercase; padding:3px 10px; border-radius:999px; border:1px solid currentColor}
+.pill.ok{color:var(--green)} .pill.bad{color:var(--warn)}
+.bigxy{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:6px 0 12px}
+.bigxy div{background:var(--surface2); border:1px solid var(--line); border-radius:12px; padding:10px 12px; min-width:0}
+.bigxy small{display:block; font-family:var(--f-mono); font-size:11.5px; color:var(--muted); letter-spacing:.08em; text-transform:uppercase}
+.bigxy strong{font-family:var(--f-mono); font-size:clamp(20px,3.4vw,28px); font-weight:600; color:var(--green); overflow-wrap:anywhere}
+.kv{display:grid; grid-template-columns:auto 1fr; gap:4px 14px; font-size:13.5px}
+.kv dt{color:var(--muted)} .kv dd{margin:0; text-align:right}
+.bad-note{color:var(--warn); font-size:14px; margin:0}
+
+/* controls */
+.ctl{display:grid; grid-template-columns:auto repeat(2,minmax(0,1fr)); gap:8px 10px; align-items:center}
+.ctl .lab{font-family:var(--f-mono); font-size:12.5px; white-space:nowrap}
+.ctl .colhead{font-family:var(--f-mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted)}
+input[type=number]{width:100%; min-width:0; font:inherit; font-family:var(--f-mono); font-size:14px; color:var(--fg); background:var(--surface2); border:1px solid var(--line); border-radius:8px; padding:7px 9px}
+input[type=number]:focus-visible,input[type=range]:focus-visible,button:focus-visible,.toggles input:focus-visible{outline:2px solid var(--cyan); outline-offset:2px}
+.sw{width:10px; height:10px; border-radius:3px; display:inline-block; margin-right:7px}
+.noise{margin-top:14px; display:grid; gap:6px}
+.noise .row{display:flex; justify-content:space-between; font-size:13px; color:var(--muted)}
+input[type=range]{width:100%; accent-color:var(--violet)}
+.btns{display:flex; flex-wrap:wrap; gap:8px; margin-top:14px}
+button{font:inherit; font-size:13.5px; font-weight:500; color:var(--fg); background:var(--surface2); border:1px solid var(--line); border-radius:10px; padding:8px 14px; cursor:pointer}
+button:hover{border-color:var(--cyan)}
+button.primary{background:linear-gradient(90deg,color-mix(in srgb,var(--cyan) 85%,#000),color-mix(in srgb,var(--violet) 85%,#000)); color:#fff; border-color:transparent}
+
+/* residual table */
+.tw{overflow-x:auto}
+table{width:100%; border-collapse:collapse; font-size:13px}
+th,td{padding:7px 8px; text-align:right; border-bottom:1px solid var(--line); white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{font-family:var(--f-mono); font-weight:500; font-size:11.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted)}
+
+/* steps */
+.steps{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px}
+@media (max-width:900px){.steps{grid-template-columns:minmax(0,1fr)}}
+.step{background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:16px 18px; min-width:0; box-shadow:var(--shadow)}
+.step header{display:flex; align-items:center; gap:12px; padding:0; margin-bottom:10px}
+.step .n{font-family:var(--f-display); font-weight:700; width:32px; height:32px; border-radius:10px; display:grid; place-items:center; background:linear-gradient(135deg,var(--cyan),var(--violet)); color:#06102a; flex:none}
+.step h3{font-size:16.5px; font-weight:600}
+.step p{margin:6px 0; color:var(--muted); font-size:14px}
+.eq{font-family:var(--f-mono); font-size:13px; background:var(--surface2); border:1px solid var(--line); border-radius:10px; padding:9px 12px; margin:7px 0; overflow-x:auto; white-space:nowrap}
+.eq .c1{color:var(--cyan)} .eq .c2{color:var(--violet)} .eq .c3{color:var(--blue)} .eq .g{color:var(--green)} .eq .o{color:var(--amber)}
+.wide{grid-column:1/-1}
+.matrix{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+.mat{display:inline-grid; grid-template-columns:auto auto; gap:2px 14px; padding:4px 12px; border-left:2px solid var(--fg); border-right:2px solid var(--fg); border-radius:6px; text-align:right}
+
+/* concept */
+.concept{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px}
+@media (max-width:900px){.concept{grid-template-columns:minmax(0,1fr)}}
+.concept .card h3{font-size:16px; margin-bottom:6px}
+.concept p{margin:0; color:var(--muted); font-size:14px}
+footer{color:var(--muted); font-size:12.5px; text-align:center; padding-top:4px}
+@media (prefers-reduced-motion:no-preference){.card,.step{transition:border-color .2s}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow">B.Tech Mathematics · Mini Project A6</div>
+      <h1><span>GPS Trilateration</span> Simulator</h1>
+      <p class="sub">Three towers report their distance to a phone. Each distance gives a circle, which is a nonlinear equation. Subtracting the circles pairwise removes x² and y² and leaves a 2 × 2 linear system.</p>
+    </div>
+    <div class="tags">
+      <span class="tag"><b>Core idea</b> · linear systems from nonlinear origins</span>
+      <span class="tag"><b>Method</b> · Cramer's rule</span>
+    </div>
+  </header>
+
+  <section class="work">
+    <div class="card mapcard">
+      <div class="maphead">
+        <h2><i></i>Live map <span class="mono" style="font-size:12px;color:var(--muted);font-weight:400">0–100 km grid</span></h2>
+        <div class="toggles">
+          <label><input type="checkbox" id="showLines" checked> Linear equations</label>
+          <label><input type="checkbox" id="showTrue" checked> True position</label>
+        </div>
+      </div>
+      <canvas id="map" width="640" height="640" aria-label="Map of three towers, their distance circles and the computed phone position"></canvas>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--amber)"></i>Tower</span>
+        <span><i class="dot" style="background:var(--cyan)"></i>Circle 1</span>
+        <span><i class="dot" style="background:var(--violet)"></i>Circle 2</span>
+        <span><i class="dot" style="background:var(--blue)"></i>Circle 3</span>
+        <span><i class="dot" style="background:var(--green)"></i>Calculated position</span>
+        <span><i class="dot ring"></i>True position</span>
+      </div>
+      <p class="hint">Drag the towers or the phone on the map. Everything below recalculates as you move them.</p>
+    </div>
+
+    <div class="side">
+      <div class="card result" id="resultCard" aria-live="polite"></div>
+
+      <div class="card">
+        <h2><i style="background:var(--violet);box-shadow:0 0 12px var(--violet)"></i>Inputs</h2>
+        <div class="ctl">
+          <span></span><span class="colhead">x (km)</span><span class="colhead">y (km)</span>
+          <span class="lab"><i class="sw" style="background:var(--amber)"></i>Tower 1</span>
+          <input type="number" id="t0x" step="0.5" min="0" max="100" aria-label="Tower 1 x"><input type="number" id="t0y" step="0.5" min="0" max="100" aria-label="Tower 1 y">
+          <span class="lab"><i class="sw" style="background:var(--amber)"></i>Tower 2</span>
+          <input type="number" id="t1x" step="0.5" min="0" max="100" aria-label="Tower 2 x"><input type="number" id="t1y" step="0.5" min="0" max="100" aria-label="Tower 2 y">
+          <span class="lab"><i class="sw" style="background:var(--amber)"></i>Tower 3</span>
+          <input type="number" id="t2x" step="0.5" min="0" max="100" aria-label="Tower 3 x"><input type="number" id="t2y" step="0.5" min="0" max="100" aria-label="Tower 3 y">
+          <span class="lab"><i class="sw" style="background:var(--fg);border-radius:50%"></i>Phone</span>
+          <input type="number" id="px" step="0.5" min="0" max="100" aria-label="Phone x"><input type="number" id="py" step="0.5" min="0" max="100" aria-label="Phone y">
+        </div>
+        <div class="noise">
+          <div class="row"><label for="noise">Distance measurement error</label><span class="mono" id="noiseVal">0.0 km</span></div>
+          <input type="range" id="noise" min="0" max="3" step="0.1" value="0">
+        </div>
+        <div class="btns">
+          <button class="primary" id="reset">Reset example</button>
+          <button id="collinear">Line up towers</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="steps" id="steps"></div>
+  </section>
+
+  <section class="card">
+    <h2><i style="background:var(--green);box-shadow:0 0 12px var(--green)"></i>Check: does the answer fit all three circles?</h2>
+    <div class="tw"><table id="resTable"></table></div>
+  </section>
+
+  <section class="concept">
+    <div class="card"><h3>Why subtract?</h3><p>Every circle contains x² + y². Subtracting one circle from another cancels both terms, so what remains has only x and y to the first power. The intersection of two circles becomes the intersection of two lines.</p></div>
+    <div class="card"><h3>Why three towers?</h3><p>One distance puts the phone anywhere on a circle. Two circles meet in up to two points. The third circle picks the correct one, and gives the second linear equation.</p></div>
+    <div class="card"><h3>When it fails</h3><p>If the three towers lie on one straight line, the two linear equations become parallel and the determinant is zero. There is then no unique solution. Try the "Line up towers" button.</p></div>
+  </section>
+
+  <footer>GPS Trilateration Simulator · 2D model · distances and coordinates in kilometres</footer>
+</div>
+
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var DEFAULT = { t:[{x:12,y:22},{x:84,y:18},{x:46,y:86}], p:{x:55,y:44} };
+  var S = JSON.parse(JSON.stringify(DEFAULT));
+  var OFF = [0.6,-0.8,0.5]; // fixed pattern so measurement error is repeatable
+  var f2 = function(n){ return (Math.abs(n) < 5e-10 ? 0 : n).toFixed(2); };
+  var f4 = function(n){ return (Math.abs(n) < 5e-10 ? 0 : n).toFixed(4); };
+
+  /* ---------- mathematics (unchanged trilateration) ---------- */
+  function solve(){
+    var noise = +$('noise').value;
+    var t = S.t, p = S.p;
+    var d = t.map(function(q,i){ return Math.hypot(p.x-q.x, p.y-q.y) + OFF[i]*noise; });
+    var a=t[0], b=t[1], c=t[2];
+    // circle1 - circle2  ->  A x + B y = C
+    var A = 2*(b.x-a.x), B = 2*(b.y-a.y);
+    var C = d[0]*d[0] - d[1]*d[1] + b.x*b.x - a.x*a.x + b.y*b.y - a.y*a.y;
+    // circle2 - circle3  ->  D x + E y = F
+    var D = 2*(c.x-b.x), E = 2*(c.y-b.y);
+    var F = d[1]*d[1] - d[2]*d[2] + c.x*c.x - b.x*b.x + c.y*c.y - b.y*b.y;
+    var det = A*E - B*D;
+    var ok = Math.abs(det) > 1e-6;
+    var x = ok ? (C*E - B*F)/det : NaN;
+    var y = ok ? (A*F - C*D)/det : NaN;
+    var res = t.map(function(q,i){ return ok ? Math.hypot(x-q.x, y-q.y) - d[i] : NaN; });
+    var err = ok ? Math.hypot(x-p.x, y-p.y) : NaN;
+    return {d:d,A:A,B:B,C:C,D:D,E:E,F:F,det:det,ok:ok,x:x,y:y,res:res,err:err,noise:noise};
+  }
+
+  /* ---------- rendering of text panels ---------- */
+  function render(){
+    var r = solve();
+    renderResult(r); renderSteps(r); renderTable(r); draw(r); syncInputs();
+  }
+
+  function renderResult(r){
+    var h = '<h2 style="justify-content:space-between"><span style="display:flex;align-items:center;gap:10px"><i style="background:var(--green);box-shadow:0 0 12px var(--green)"></i>Calculated position</span>'
+      + '<span class="pill ' + (r.ok?'ok':'bad') + '">' + (r.ok?'Solved':'No unique solution') + '</span></h2>';
+    if(r.ok){
+      h += '<div class="bigxy"><div><small>x</small><strong>' + f2(r.x) + '</strong></div><div><small>y</small><strong>' + f2(r.y) + '</strong></div></div>'
+        + '<dl class="kv mono">'
+        + '<dt>True position</dt><dd>(' + f2(S.p.x) + ', ' + f2(S.p.y) + ')</dd>'
+        + '<dt>Distance from true position</dt><dd>' + f4(r.err) + ' km</dd>'
+        + '<dt>Determinant</dt><dd>' + f2(r.det) + '</dd></dl>';
+      if(r.noise>0) h += '<p class="hint">With measurement error the three circles no longer meet in one point. The linear system still returns one answer, as the check table shows.</p>';
+    } else {
+      h += '<p class="bad-note">The towers lie on one line, so the determinant is 0 and the two linear equations are parallel. Move one tower off the line.</p>'
+        + '<dl class="kv mono"><dt>Determinant</dt><dd>' + f2(r.det) + '</dd></dl>';
+    }
+    $('resultCard').innerHTML = h;
+  }
+
+  function renderSteps(r){
+    var t = S.t, d = r.d;
+    var q = function(v){ return v<0 ? '(' + f2(v) + ')' : f2(v); };
+    var cls = ['c1','c2','c3'];
+    var circles = t.map(function(p,i){
+      return '<div class="eq"><span class="' + cls[i] + '">(x − ' + q(p.x) + ')² + (y − ' + q(p.y) + ')² = ' + f2(d[i]) + '²</span></div>';
+    }).join('');
+    var h = '';
+    h += step(1,'Three distances give three circles',
+      '<p>Tower <i>i</i> at (x<sub>i</sub>, y<sub>i</sub>) measures distance d<sub>i</sub>. The phone (x, y) satisfies (x − x<sub>i</sub>)² + (y − y<sub>i</sub>)² = d<sub>i</sub>². These are nonlinear.</p>' + circles);
+    h += step(2,'Subtract pairs to cancel x² and y²',
+      '<p>Expanding gives x² + y² − 2x<sub>i</sub>x − 2y<sub>i</sub>y + x<sub>i</sub>² + y<sub>i</sub>² = d<sub>i</sub>². Equation 1 minus equation 2, and equation 2 minus equation 3, remove x² and y².</p>'
+      + '<div class="eq">A = 2(x₂ − x₁) = 2(' + q(t[1].x) + ' − ' + q(t[0].x) + ') = <span class="o">' + f2(r.A) + '</span></div>'
+      + '<div class="eq">B = 2(y₂ − y₁) = 2(' + q(t[1].y) + ' − ' + q(t[0].y) + ') = <span class="o">' + f2(r.B) + '</span></div>'
+      + '<div class="eq">C = d₁² − d₂² + x₂² − x₁² + y₂² − y₁² = <span class="o">' + f2(r.C) + '</span></div>');
+    h += step(3,'The second linear equation',
+      '<p>The same step on circles 2 and 3 gives the second row.</p>'
+      + '<div class="eq">D = 2(x₃ − x₂) = 2(' + q(t[2].x) + ' − ' + q(t[1].x) + ') = <span class="o">' + f2(r.D) + '</span></div>'
+      + '<div class="eq">E = 2(y₃ − y₂) = 2(' + q(t[2].y) + ' − ' + q(t[1].y) + ') = <span class="o">' + f2(r.E) + '</span></div>'
+      + '<div class="eq">F = d₂² − d₃² + x₃² − x₂² + y₃² − y₂² = <span class="o">' + f2(r.F) + '</span></div>');
+    h += step(4,'Solve the 2 × 2 linear system',
+      '<div class="eq"><span class="c1">' + f2(r.A) + 'x + ' + q(r.B) + 'y = ' + f2(r.C) + '</span></div>'
+      + '<div class="eq"><span class="c2">' + q(r.D) + 'x + ' + q(r.E) + 'y = ' + f2(r.F) + '</span></div>'
+      + '<div class="matrix mono" style="font-size:13px"><div class="mat"><span>' + f2(r.A) + '</span><span>' + f2(r.B) + '</span><span>' + f2(r.D) + '</span><span>' + f2(r.E) + '</span></div>'
+      + '<div class="mat" style="grid-template-columns:auto"><span>x</span><span>y</span></div><span>=</span>'
+      + '<div class="mat" style="grid-template-columns:auto"><span>' + f2(r.C) + '</span><span>' + f2(r.F) + '</span></div></div>'
+      + '<div class="eq">det = AE − BD = ' + f2(r.A) + '·' + q(r.E) + ' − ' + q(r.B) + '·' + q(r.D) + ' = <span class="o">' + f2(r.det) + '</span></div>');
+    if(r.ok){
+      h += stepWide(5,'Cramer\'s rule gives the phone position',
+        '<div class="eq">x = (CE − BF) / det = (' + f2(r.C) + '·' + q(r.E) + ' − ' + q(r.B) + '·' + q(r.F) + ') / ' + f2(r.det) + ' = <span class="g">' + f2(r.x) + '</span></div>'
+        + '<div class="eq">y = (AF − CD) / det = (' + f2(r.A) + '·' + q(r.F) + ' − ' + q(r.C) + '·' + q(r.D) + ') / ' + f2(r.det) + ' = <span class="g">' + f2(r.y) + '</span></div>'
+        + '<div class="eq">(x, y) = <span class="g">(' + f2(r.x) + ', ' + f2(r.y) + ')</span></div>');
+    } else {
+      h += stepWide(5,'The determinant is zero',
+        '<p>Cramer\'s rule divides by det, so it cannot continue. Geometrically the two lines are parallel (the towers are collinear), which means the three circles do not fix a single point.</p>');
+    }
+    $('steps').innerHTML = h;
+  }
+  function step(n,title,body){ return '<div class="step"><header><div class="n">' + n + '</div><h3>' + title + '</h3></header>' + body + '</div>'; }
+  function stepWide(n,title,body){ return '<div class="step wide"><header><div class="n">' + n + '</div><h3>' + title + '</h3></header>' + body + '</div>'; }
+
+  function renderTable(r){
+    var rows = '<tr><th>Tower</th><th>Measured d<sub>i</sub></th><th>Distance to solution</th><th>Residual</th></tr>';
+    S.t.forEach(function(p,i){
+      var dist = r.ok ? Math.hypot(r.x-p.x, r.y-p.y) : NaN;
+      rows += '<tr class="mono"><td>T' + (i+1) + ' (' + f2(p.x) + ', ' + f2(p.y) + ')</td><td>' + f2(r.d[i]) + '</td><td>' + (r.ok?f2(dist):'–') + '</td><td style="color:' + (r.ok ? (Math.abs(r.res[i])<0.005?'var(--green)':'var(--amber)') : 'var(--muted)') + '">' + (r.ok?f4(r.res[i]):'–') + '</td></tr>';
+    });
+    $('resTable').innerHTML = rows;
+  }
+
+  /* ---------- canvas map ---------- */
+  var cv = $('map'), ctx = cv.getContext('2d');
+  var PAD = 36, W = 640, H = 640, SC = 1;
+  function toX(x){ return PAD + x*SC; }
+  function toY(y){ return H - PAD - y*SC; }
+  function color(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+
+  function sizeCanvas(){
+    var w = cv.clientWidth || 640, dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(w*dpr); cv.height = Math.round(w*dpr);
+    W = w; H = w; SC = (W - 2*PAD)/100;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+
+  function draw(r){
+    r = r || solve();
+    ctx.clearRect(0,0,W,H);
+    var grid = color('--grid'), muted = color('--muted'), fg = color('--fg');
+    var cc = [color('--cyan'), color('--violet'), color('--blue')];
+    var amber = color('--amber'), green = color('--green');
+
+    // grid
+    ctx.lineWidth = 1; ctx.font = '11px ' + color('--f-mono'); ctx.textBaseline = 'middle';
+    for(var g=0; g<=100; g+=10){
+      ctx.globalAlpha = (g%50===0) ? .30 : .14; ctx.strokeStyle = grid;
+      ctx.beginPath(); ctx.moveTo(toX(g),toY(0)); ctx.lineTo(toX(g),toY(100)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(toX(0),toY(g)); ctx.lineTo(toX(100),toY(g)); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.fillStyle = muted;
+      ctx.textAlign = 'center'; ctx.fillText(g, toX(g), toY(0)+14);
+      ctx.textAlign = 'right'; ctx.fillText(g, toX(0)-8, toY(g));
+    }
+    ctx.textAlign = 'center'; ctx.fillText('x (km)', toX(50), H-6);
+    ctx.save(); ctx.translate(11, toY(50)); ctx.rotate(-Math.PI/2); ctx.fillText('y (km)', 0, 0); ctx.restore();
+
+    // clip to plot area
+    ctx.save(); ctx.beginPath(); ctx.rect(toX(0),toY(100),100*SC,100*SC); ctx.clip();
+
+    // circles
+    S.t.forEach(function(p,i){
+      ctx.beginPath(); ctx.arc(toX(p.x), toY(p.y), r.d[i]*SC, 0, Math.PI*2);
+      ctx.fillStyle = cc[i]; ctx.globalAlpha = .07; ctx.fill();
+      ctx.globalAlpha = 1; ctx.strokeStyle = cc[i]; ctx.lineWidth = 2.2; ctx.stroke();
+      // line from tower to true phone
+    });
+
+    // linear equations (radical lines)
+    if($('showLines').checked && r.ok){
+      ctx.setLineDash([7,6]); ctx.lineWidth = 1.6; ctx.globalAlpha = .85;
+      [[r.A,r.B,r.C,cc[0]],[r.D,r.E,r.F,cc[1]]].forEach(function(L){
+        var a=L[0], b=L[1], c=L[2], p1, p2;
+        if(Math.abs(b) >= Math.abs(a)){ p1=[-20,(c-a*-20)/b]; p2=[120,(c-a*120)/b]; }
+        else { p1=[(c-b*-20)/a,-20]; p2=[(c-b*120)/a,120]; }
+        ctx.strokeStyle = L[3];
+        ctx.beginPath(); ctx.moveTo(toX(p1[0]),toY(p1[1])); ctx.lineTo(toX(p2[0]),toY(p2[1])); ctx.stroke();
+      });
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+
+    // true position
+    if($('showTrue').checked){
+      ctx.beginPath(); ctx.arc(toX(S.p.x), toY(S.p.y), 8, 0, Math.PI*2);
+      ctx.lineWidth = 2; ctx.strokeStyle = fg; ctx.setLineDash([3,3]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = muted; ctx.textAlign = 'left'; ctx.fillText('phone', toX(S.p.x)+13, toY(S.p.y)-10);
+    }
+
+    // calculated position
+    if(r.ok){
+      var X = toX(r.x), Y = toY(r.y);
+      ctx.beginPath(); ctx.arc(X,Y,16,0,Math.PI*2); ctx.fillStyle = green; ctx.globalAlpha = .18; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.arc(X,Y,6.5,0,Math.PI*2); ctx.fillStyle = green; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = color('--canvas'); ctx.stroke();
+      ctx.fillStyle = green; ctx.textAlign = 'left'; ctx.font = '600 12px ' + color('--f-mono');
+      ctx.fillText('(' + f2(r.x) + ', ' + f2(r.y) + ')', X+14, Y+16);
+      ctx.font = '11px ' + color('--f-mono');
+    }
+
+    // towers
+    S.t.forEach(function(p,i){
+      var X = toX(p.x), Y = toY(p.y);
+      ctx.beginPath(); ctx.moveTo(X,Y-11); ctx.lineTo(X+10,Y+8); ctx.lineTo(X-10,Y+8); ctx.closePath();
+      ctx.fillStyle = amber; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = color('--canvas'); ctx.stroke();
+      ctx.fillStyle = fg; ctx.textAlign = 'left'; ctx.font = '600 12px ' + color('--f-mono');
+      var lx = X+14, al = 'left';
+      if(X > W-90){ lx = X-14; al = 'right'; }
+      ctx.textAlign = al; ctx.fillText('T' + (i+1), lx, Y-6);
+      ctx.fillStyle = muted; ctx.font = '11px ' + color('--f-mono');
+      ctx.fillText('d=' + f2(r.d[i]), lx, Y+9);
+    });
+  }
+
+  /* ---------- dragging ---------- */
+  var drag = null;
+  function pointer(e){
+    var rc = cv.getBoundingClientRect();
+    return { x:(e.clientX-rc.left), y:(e.clientY-rc.top) };
+  }
+  function items(){ return S.t.concat([S.p]); }
+  cv.addEventListener('pointerdown', function(e){
+    var m = pointer(e), best = -1, bd = 22;
+    items().forEach(function(p,i){
+      var dd = Math.hypot(toX(p.x)-m.x, toY(p.y)-m.y);
+      if(dd < bd){ bd = dd; best = i; }
+    });
+    if(best >= 0){ drag = best; cv.classList.add('drag'); cv.setPointerCapture(e.pointerId); e.preventDefault(); }
+  });
+  cv.addEventListener('pointermove', function(e){
+    if(drag === null) return;
+    var m = pointer(e);
+    var wx = Math.min(100, Math.max(0, (m.x-PAD)/SC));
+    var wy = Math.min(100, Math.max(0, (H-PAD-m.y)/SC));
+    var tgt = items()[drag];
+    tgt.x = Math.round(wx*2)/2; tgt.y = Math.round(wy*2)/2;
+    render();
+  });
+  function endDrag(e){ drag = null; cv.classList.remove('drag'); }
+  cv.addEventListener('pointerup', endDrag);
+  cv.addEventListener('pointercancel', endDrag);
+
+  /* ---------- inputs ---------- */
+  var ids = [['t0x',function(){return S.t[0];},'x'],['t0y',function(){return S.t[0];},'y'],
+             ['t1x',function(){return S.t[1];},'x'],['t1y',function(){return S.t[1];},'y'],
+             ['t2x',function(){return S.t[2];},'x'],['t2y',function(){return S.t[2];},'y'],
+             ['px',function(){return S.p;},'x'],['py',function(){return S.p;},'y']];
+  function syncInputs(){
+    ids.forEach(function(r){
+      var el = $(r[0]);
+      if(document.activeElement !== el) el.value = r[1]()[r[2]];
+    });
+    $('noiseVal').textContent = (+$('noise').value).toFixed(1) + ' km';
+  }
+  ids.forEach(function(r){
+    $(r[0]).addEventListener('input', function(e){
+      var v = parseFloat(e.target.value);
+      if(isNaN(v)) return;
+      r[1]()[r[2]] = Math.min(100, Math.max(0, v));
+      render();
+    });
+  });
+  $('noise').addEventListener('input', render);
+  $('showLines').addEventListener('change', function(){ draw(); });
+  $('showTrue').addEventListener('change', function(){ draw(); });
+  $('reset').addEventListener('click', function(){ S = JSON.parse(JSON.stringify(DEFAULT)); $('noise').value = 0; render(); });
+  $('collinear').addEventListener('click', function(){
+    S.t = [{x:10,y:50},{x:50,y:50},{x:90,y:50}]; render();
+  });
+
+  /* ---------- theme + resize ---------- */
+  window.addEventListener('resize', function(){ sizeCanvas(); draw(); });
+  if(window.ResizeObserver) new ResizeObserver(function(){ sizeCanvas(); draw(); }).observe(cv);
+  try{ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(){ draw(); }); }catch(_){}
+  new MutationObserver(function(){ draw(); }).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+
+  sizeCanvas(); render();
+})();
+</script>
+
+</body></html>
